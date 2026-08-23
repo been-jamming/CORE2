@@ -4,7 +4,8 @@ enum expr_option{
 	EXPR_CONSTANT,
 	EXPR_APPLY,
 	EXPR_PRIMITIVE_FUNC,
-	EXPR_OPERATION
+	EXPR_OPERATION,
+	EXPR_VARIABLE
 };
 
 typedef struct expr expr;
@@ -36,6 +37,8 @@ struct expr{
 		};
 		//EXPR_CONSTANT
 		expr_constant *constant;
+		//EXPR_VARIABLE
+		variable *variable;
 	};
 };
 

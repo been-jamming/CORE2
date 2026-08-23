@@ -43,7 +43,7 @@ int get_identifier_name_length(char *c){
 	return length;
 }
 
-type *duplicate_type(type *input){
+static type *duplicate_type(type *input){
 	unsigned int k;
 	type *output;
 
@@ -83,7 +83,7 @@ type *duplicate_type(type *input){
 	return output;
 }
 
-int types_identical(type *input0, type *input1){
+static int types_identical(type *input0, type *input1){
 	int k;
 
 	if(input0->option != input1->option || input0->num_bound_vars != input1->num_bound_vars){
@@ -121,7 +121,7 @@ int types_identical(type *input0, type *input1){
 	}
 }
 
-variable *get_type_variable(char **c){
+static variable *get_type_variable(char **c){
 	int identifier_length;
 	char *identifier;
 	variable *named_variable;
@@ -140,7 +140,7 @@ variable *get_type_variable(char **c){
 	named_variable = read_dictionary(*parse_variables, identifier, 0);
 
 	if(!named_variable){
-		fprintf(stderr, "Error: unknown identifier '%s'\n", identifier);
+		fprintf(stderr, "Error: unknown variable '%s'\n", identifier);
 		exit(1);
 	}
 
@@ -150,7 +150,7 @@ variable *get_type_variable(char **c){
 	return named_variable;
 }
 
-type *parse_type_value(char **c, unsigned int num_bound_vars){
+static type *parse_type_value(char **c, unsigned int num_bound_vars){
 	type *output;
 	type *input_type;
 	type *output_type;
@@ -297,7 +297,7 @@ type *parse_type_value(char **c, unsigned int num_bound_vars){
 	}
 }
 
-type *parse_type_recursive(char **c, type *prev_type_value, unsigned int num_bound_vars, int precedence){
+static type *parse_type_recursive(char **c, type *prev_type_value, unsigned int num_bound_vars, int precedence){
 	type *output;
 	type *type_value;
 	char *var_name0;

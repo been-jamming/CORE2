@@ -65,5 +65,11 @@ struct definition{
 	type **argument_types;
 };
 
+void skip_whitespace(char **c);
+int is_alpha(char c);
+int is_numeric(char c);
+int is_identifier_char(char c);
+int get_identifier_name_length(char *c);
 type *parse_type(char **c, unsigned int num_bound_vars);
+void print_type(type *input_type);
 
