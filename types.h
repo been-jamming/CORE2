@@ -18,11 +18,19 @@ enum variable_option{
 	VARIABLE_BOUND
 };
 
+enum argument_option{
+	ARGUMENT_BOUND,
+	ARGUMENT_ENVIRONMENT,
+	ARGUMENT_CONSTANT
+};
+
 typedef struct type type;
 
 typedef struct definition definition;
 
 typedef struct variable variable;
+
+typedef struct argument argument;
 
 struct type{
 	enum type_option option;
@@ -33,6 +41,8 @@ struct type{
 		struct{
 			type *input_type;
 			type *output_type;
+			//Reserved for type duplication
+			type *duplication_target;
 		};
 
 		//AND, OR
@@ -44,8 +54,28 @@ struct type{
 		//DEFINITION
 		struct{
 			definition *definition_data;
-			variable **arguments;
+			argument *arguments;
 		};
+	};
+
+	type *parent;
+
+	//Reserved for type coercion
+	type *source;
+	type *target;
+};
+
+struct argument{
+	enum argument_option option;
+
+	union{
+		//ARGUMENT_BOUND
+		type *subtype_source;
+		//ARGUMENT_ENVIRONMENT
+		variable *argument_variable;
+		//ARGUMENT_CONSTANT
+		//TODO
+		
 	};
 };
 
@@ -53,8 +83,10 @@ struct variable{
 	enum variable_option option;
 
 	char *name;
-	type *variable_type;
-	unsigned int variable_id;
+	union{
+		type *subtype_source;
+		type *variable_type;
+	};
 };
 
 struct definition{
