@@ -24,6 +24,12 @@ enum argument_option{
 	ARGUMENT_CONSTANT
 };
 
+enum coercion_map_option{
+	COERCION_MAP_NONE,
+	COERCION_MAP_ENVIRONMENT,
+	COERCION_MAP_BOUND
+};
+
 typedef struct type type;
 
 typedef struct definition definition;
@@ -31,6 +37,8 @@ typedef struct definition definition;
 typedef struct variable variable;
 
 typedef struct argument argument;
+
+typedef struct coercion_map coercion_map;
 
 struct type{
 	enum type_option option;
@@ -61,9 +69,20 @@ struct type{
 	type *parent;
 
 	//Reserved for type coercion
-	type *source;
-	type *target;
+	coercion_map source;
+	coercion_map target;
 };
+
+struct coercion_map{
+	enum coercion_map_option option;
+
+	union{
+		//COERCION_MAP_ENVIRONMENT
+		variable *coercion_variable;
+		//COERCION_MAP_BOUND
+		type *subtype;
+	};
+}
 
 struct argument{
 	enum argument_option option;

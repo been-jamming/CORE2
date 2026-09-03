@@ -1,5 +1,10 @@
 #include "types.h"
-#include "coerce.h"
+
+struct subtype_stack{
+	type *t0;
+	type *t1;
+	struct subtype_stack *parent;
+};
 
 int coerce_type_t1_AND(struct subtype_stack *stack){
 	struct subtype_stack node;
@@ -53,23 +58,111 @@ int coerce_type_t0_AND(struct subtype_stack *stack){
 
 int coerce_type_definitions(struct subtype_stack *stack){
 	int k;
-	variable *var0;
-	variable *var1;
+	int result = 0;
+	unsigned int num_arguments;
+	argument arg0;
+	argument arg1;
+	coercion_map *coercion_maps_source0;
+	coercion_map *coercion_maps_target0;
+	coercion_map *coercion_maps_source1;
+	coercion_map *coercion_maps_target1;
 
 	if(stack->t0->definition_data != stack->t1->definition_data){
-		return 0;
+		return 1;
 	}
 
-	for(k = 0; k < stack->t0->definition_data->num_arguments; k++){
-		var0 = stack->t0->arguments[k];
-		var1 = stack->t1->arguments[k];
-		if(var0->option != var1->option){
-			return 0;
+	num_arguments = stack->t0->definition_data->num_arguments;
+
+	coercion_maps_source0 = malloc(sizeof(coercion_map)*num_arguments);
+	coercion_maps_target0 = malloc(sizeof(coercion_map)*num_arguments);
+	coercion_maps_source1 = malloc(sizeof(coercion_map)*num_arguments);
+	coercion_maps_target1 = malloc(sizeof(coercion_map)*num_arguments);
+
+	//Save the prior coercion maps
+	for(k = 0; k < num_arguments; k++){
+		arg0 = stack->t0->arguments[k];
+		arg1 = stack->t1->arguments[k];
+
+		if(arg0.option == ARGUMENT_BOUND){
+			coercion_maps_source0[k] = arg0.subtype_source->source;
+			coercion_maps_target0[k] = arg0.subtype_source->target;
 		}
-		if(var0->option == VARIABLE_BOUND){
-			//Something here
+
+		if(arg1.option == ARGUMENT_BOUND){
+			coercion_maps_source1[k] = arg1.subtype_source->source;
+			coercion_maps_target1[k] = arg1.subtype_source->target;
 		}
 	}
+
+	//Bind new coercion maps and check prior bindings
+	for(k = 0; k < stack->t0->definition_data->num_arguments; k++){
+		arg0 = stack->t0->arguments[k];
+		arg1 = stack->t1->arguments[k];
+		if(arg0.option == ARGUMENT_ENVIRONMENT && arg1.option == ARGUMENT_BOUND){
+			if(arg1.subtype_source->option != SUM){
+				result = 1;
+				break;
+			}
+			if(arg1.subtype_source->source.option == COERCION_MAP_NONE){
+				arg1.subtype_source->source.option = COERCION_MAP_ENVIRONMENT;
+				arg1.subtype_source->source.coercion_variable = arg0.argument_variable;
+			} else if(arg1.subtype_source->source.option == COERCION_MAP_ENVIRONMENT){
+				if(arg1.subtype_source->source.coercion_variable != arg0.argument_variable){
+					result = 1;
+					break;
+				}
+			} else {
+				result = 1;
+				break;
+			}
+		} else if(arg0.option == ARGUMENT_BOUND && arg1.option == ARGUMENT_ENVIRONMENT){
+			if(arg0.subtype_source->option != PRODUCT){
+				result = 1;
+				break;
+			}
+			if(arg0.subtype_source->target.option == COERCION_MAP_NONE){
+				arg0.subtype_source->target.option = COERCION_MAP_ENVIRONMENT;
+				arg0.subtype_source->target.coercion_variable = arg1.argument_variable;
+			} else if(arg0.subtype_source->target.option == COERCION_MAP_ENVIRONMENT){
+				if(arg0.subtype_source->target.coercion_variable != arg1.argument_variable){
+					result = 1;
+					break;
+				}
+			} else {
+				result = 1;
+				break;
+			}
+		} else if(arg0.option == ARGUMENT_BOUND && arg1.option == ARGUMENT_BOUND){
+			
+		}
+	}
+
+	result = result || seek_next(stack);
+
+	if(result){
+		//Restore the prior coercion maps
+		for(k = 0; k < num_arguments; k++){
+			arg0 = stack->t0->arguments[k];
+			arg1 = stack->t1->arguments[k];
+
+			if(arg0.option == ARGUMENT_BOUND){
+				arg0.subtype_source->source = coercion_maps_source0[k];
+				arg0.subtype_source->target = coercion_maps_target0[k];
+			}
+
+			if(arg1.option == ARGUMENT_BOUND){
+				arg1.subtype_source->source = coercion_maps_source1[k];
+				arg1.subtype_source->target = coercion_maps_target1[k];
+			}
+		}
+	}
+
+	free(coercion_maps_source0);
+	free(coercion_maps_target0)
+	free(coercion_maps_source1);
+	free(coercion_maps_target1)
+
+	return result;
 }
 
 int coerce_type_recursive(struct subtype_stack *stack){
