@@ -1,7 +1,6 @@
 enum type_option{
 	PRODUCT,
 	SUM,
-	AND,
 	OR,
 	DEFINITION
 };
@@ -42,18 +41,19 @@ typedef struct coercion_map coercion_map;
 
 struct type{
 	enum type_option option;
-	unsigned int num_bound_vars;
+	int num_bound_vars;
 
 	union{
 		//PRODUCT, SUM
 		struct{
+			char *input_name;
 			type *input_type;
 			type *output_type;
 			//Reserved for type duplication
 			type *duplication_target;
 		};
 
-		//AND, OR
+		//OR
 		struct{
 			type *type0;
 			type *type1;
@@ -70,7 +70,6 @@ struct type{
 
 	//Reserved for type coercion
 	coercion_map source;
-	coercion_map target;
 };
 
 struct coercion_map{
@@ -82,6 +81,9 @@ struct coercion_map{
 		//COERCION_MAP_BOUND
 		type *subtype;
 	};
+
+	int bound_min;
+	int bound_max;
 }
 
 struct argument{
@@ -96,6 +98,8 @@ struct argument{
 		//TODO
 		
 	};
+
+	argument *child;
 };
 
 struct variable{

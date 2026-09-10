@@ -43,6 +43,39 @@ int get_identifier_name_length(char *c){
 	return length;
 }
 
+static argument duplicate_argument(argument input){
+	argument output;
+	argument *input_pointer;
+	argument *output_pointer;
+
+	input_pointer = &input;
+	output_pointer = &output;
+
+	while(input_pointer != NULL){
+		output_pointer->option = input_pointer->option;
+
+		if(input_pointer->option == ARGUMENT_BOUND){
+			output_pointer->subtype_source = input_pointer->subtype_source->duplication_target;
+		} else if(input_pointer->option == ARGUMENT_ENVIRONMENT){
+			output_pointer->argument_variable = input_pointer->argument_variable;
+		} else {
+			fprintf(stderr, "Internal Error: unimplemented argument option\n");
+			exit(1);
+		}
+
+		if(input_pointer->child != NULL){
+			output_pointer->child = malloc(sizeof(argument));
+			output_pointer = output_pointer->child;
+		} else {
+			output_pointer->child = NULL;
+		}
+
+		input_pointer = input_pointer->child;
+	}
+
+	return output;
+}
+
 static type *duplicate_type(type *input){
 	unsigned int k;
 	type *output;
@@ -54,11 +87,18 @@ static type *duplicate_type(type *input){
 	switch(input->option){
 		case PRODUCT:
 		case SUM:
+			if(input->input_name){
+				output->input_name = malloc(sizeof(char)*(strlen(input->input_name) + 1));
+				strcpy(output->input_name, input->input_name);
+			} else {
+				output->input_name = NULL;
+			}
 			output->input_type = duplicate_type(input->input_type);
 			output->output_type = duplicate_type(input->output_type);
+			output->input_type->parent = output;
+			output->output_type->parent = output;
 			input->duplication_target = output;
 			break;
-		case AND:
 		case OR:
 			output->type0 = duplicate_type(input->type0);
 			output->type1 = duplicate_type(input->type1);
@@ -69,11 +109,7 @@ static type *duplicate_type(type *input){
 			output->definition_data = input->definition_data;
 			output->arguments = malloc(sizeof(variable)*input->definition_data->num_arguments);
 			for(k = 0; k < input->definition_data->num_arguments; k++){
-				output->arguments[k] = input->arguments[k];
-
-				if(input->arguments[k].option == ARGUMENT_BOUND){
-					output->arguments[k].subtype_source = input->arguments[k].subtype_source->duplication_target;
-				}
+				output->arguments[k] = duplicate_argument(input->arguments[k]);
 			}
 			break;
 	}
@@ -83,8 +119,48 @@ static type *duplicate_type(type *input){
 	return output;
 }
 
+static int arguments_identical(argument *arg0, argument *arg1){
+	if(arg0 == NULL && arg1 != NULL){
+		return 0;
+	}
+
+	while(arg1 != NULL){
+		if(arg0->option != arg1->option){
+			return 0;
+		}
+
+		if(arg0->option == ARGUMENT_BOUND){
+			if(arg0->subtype_source->num_bound_vars != arg1->subtype_source->num_bound_vars){
+				return 0;
+			}
+		} else if(arg0->option == ARGUMENT_ENVIRONMENT){
+			if(arg0->argument_variable != arg1->argument_variable){
+				return 0;
+			}
+		} else {
+			fprintf(stderr, "Internal Error: unimplemented argument option\n");
+			exit(1);
+		}
+
+		arg0 = arg0->child;
+		arg1 = arg1->child;
+
+		if(arg0 == NULL && arg1 != NULL){
+			return 0;
+		}
+	}
+
+	return arg0 == NULL;
+}
+
 static int types_identical(type *input0, type *input1){
 	int k;
+
+	if(input0 == NULL && input1 == NULL){
+		return 1;
+	} else if(input0 == NULL || input1 == NULL){
+		return 0;
+	}
 
 	if(input0->option != input1->option || input0->num_bound_vars != input1->num_bound_vars){
 		return 0;
@@ -93,8 +169,12 @@ static int types_identical(type *input0, type *input1){
 	switch(input0->option){
 		case PRODUCT:
 		case SUM:
-			return types_identical(input0->input_type, input1->input_type) && types_identical(input0->output_type, input1->output_type);
-		case AND:
+			if(input0->option == SUM && (input0->input_name == NULL) != (input1->input_name == NULL)){
+				return 0;
+			}
+			return (input0->option == PRODUCT || !strcmp(input0->input_name, input1->input_name)) &&
+			       types_identical(input0->input_type, input1->input_type) &&
+			       types_identical(input0->output_type, input1->output_type);
 		case OR:
 			return types_identical(input0->type0, input1->type0) && types_identical(input0->type1, input1->type1);
 		case DEFINITION:
@@ -103,17 +183,8 @@ static int types_identical(type *input0, type *input1){
 			}
 
 			for(k = 0; k < input0->definition_data->num_arguments; k++){
-				if(input0->arguments[k].option != input1->arguments[k].option){
+				if(!arguments_identical(&(input0->arguments[k]), &(input1->arguments[k]))){
 					return 0;
-				}
-				if(input0->arguments[k].option == ARGUMENT_BOUND){
-					if(input0->arguments[k].subtype_source->num_bound_vars != input1->arguments[k].subtype_source->num_bound_vars){
-						return 0;
-					}
-				} else {
-					if(input0->arguments[k].argument_variable != input1->arguments[k].argument_variable){
-						return 0;
-					}
 				}
 			}
 
@@ -164,7 +235,7 @@ static argument get_type_argument(char **c){
 	return output;
 }
 
-static type *parse_type_value(char **c, unsigned int num_bound_vars){
+static type *parse_type_value(char **c, int num_bound_vars){
 	type *output;
 	type *input_type;
 	type *output_type;
@@ -328,7 +399,7 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 	exit(1);
 }
 
-static type *parse_type_recursive(char **c, type *prev_type_value, unsigned int num_bound_vars, int precedence){
+static type *parse_type_recursive(char **c, type *prev_type_value, int num_bound_vars, int precedence){
 	type *output;
 	type *type_value;
 
@@ -356,12 +427,12 @@ static type *parse_type_recursive(char **c, type *prev_type_value, unsigned int 
 		type_value = parse_type_recursive(c, type_value, num_bound_vars, 2);
 
 		output = malloc(sizeof(type));
-		output->option = AND;
+		output->option = SUM;
 		output->num_bound_vars = num_bound_vars;
 		output->parent = NULL;
 
-		output->type0 = prev_type_value;
-		output->type1 = type_value;
+		output->input_type = prev_type_value;
+		output->output_type = type_value;
 		prev_type_value->parent = output;
 		type_value->parent = output;
 
@@ -371,7 +442,7 @@ static type *parse_type_recursive(char **c, type *prev_type_value, unsigned int 
 	}
 }
 
-type *parse_type(char **c, unsigned int num_bound_vars){
+type *parse_type(char **c, int num_bound_vars){
 	type *prev_type_value = NULL;
 	type *next_type_value;
 
@@ -405,13 +476,10 @@ void print_type(type *input_type){
 		printf(")(");
 		print_type(input_type->output_type);
 		printf(")");
-	} else if(input_type->option == AND || input_type->option == OR){
+	} else if(input_type->option == OR){
 		printf("(");
 		print_type(input_type->type0);
-		if(input_type->option == AND)
-			printf(")&(");
-		else
-			printf(")|(");
+		printf(")|(");
 		print_type(input_type->type1);
 		printf(")");
 	} else if(input_type->option == DEFINITION){
