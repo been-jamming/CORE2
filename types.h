@@ -18,6 +18,8 @@ enum variable_option{
 };
 
 enum argument_option{
+	ARGUMENT_DOT_PRODUCT,
+	ARGUMENT_DOT_SUM,
 	ARGUMENT_BOUND,
 	ARGUMENT_ENVIRONMENT,
 	ARGUMENT_CONSTANT
@@ -62,7 +64,7 @@ struct type{
 		//DEFINITION
 		struct{
 			definition *definition_data;
-			argument *arguments;
+			argument **arguments;
 		};
 	};
 
@@ -90,6 +92,15 @@ struct argument{
 	enum argument_option option;
 
 	union{
+		//ARGUMENT_DOT_PRODUCT
+		//ARGUMENT_DOT_SUM
+		struct{
+			argument *argument0;
+			union{
+				argument *argument1;
+				char *element_name;
+			};
+		};
 		//ARGUMENT_BOUND
 		type *subtype_source;
 		//ARGUMENT_ENVIRONMENT
@@ -98,8 +109,6 @@ struct argument{
 		//TODO
 		
 	};
-
-	argument *child;
 };
 
 struct variable{

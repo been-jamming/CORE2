@@ -43,34 +43,31 @@ int get_identifier_name_length(char *c){
 	return length;
 }
 
-static argument duplicate_argument(argument input){
-	argument output;
-	argument *input_pointer;
-	argument *output_pointer;
+static argument *duplicate_argument(argument *input){
+	argument *output;
 
-	input_pointer = &input;
-	output_pointer = &output;
+	output = malloc(sizeof(argument));
+	output->option = input->option;
 
-	while(input_pointer != NULL){
-		output_pointer->option = input_pointer->option;
-
-		if(input_pointer->option == ARGUMENT_BOUND){
-			output_pointer->subtype_source = input_pointer->subtype_source->duplication_target;
-		} else if(input_pointer->option == ARGUMENT_ENVIRONMENT){
-			output_pointer->argument_variable = input_pointer->argument_variable;
-		} else {
+	switch(input->option){
+		case ARGUMENT_DOT_PRODUCT:
+			output->argument0 = duplicate_argument(input->argument0);
+			output->argument1 = duplicate_argument(input->argument1);
+			break;
+		case ARGUMENT_DOT_SUM:
+			output->argument0 = duplicate_argument(input->argument0);
+			output->element_name = malloc(sizeof(char)*(strlen(input->element_name) + 1));
+			strcpy(output->element_name, input->element_name);
+			break;
+		case ARGUMENT_BOUND:
+			output->subtype_source = input->subtype_source;
+			break;
+		case ARGUMENT_ENVIRONMENT:
+			output->argument_variable = input->argument_variable;
+			break;
+		case ARGUMENT_CONSTANT:
 			fprintf(stderr, "Internal Error: unimplemented argument option\n");
 			exit(1);
-		}
-
-		if(input_pointer->child != NULL){
-			output_pointer->child = malloc(sizeof(argument));
-			output_pointer = output_pointer->child;
-		} else {
-			output_pointer->child = NULL;
-		}
-
-		input_pointer = input_pointer->child;
 	}
 
 	return output;
@@ -119,38 +116,24 @@ static type *duplicate_type(type *input){
 	return output;
 }
 
-static int arguments_identical(argument *arg0, argument *arg1){
-	if(arg0 == NULL && arg1 != NULL){
+static int arguments_identical(argument *input0, argument *input1){
+	if(input0->option != input1->option){
 		return 0;
 	}
 
-	while(arg1 != NULL){
-		if(arg0->option != arg1->option){
-			return 0;
-		}
-
-		if(arg0->option == ARGUMENT_BOUND){
-			if(arg0->subtype_source->num_bound_vars != arg1->subtype_source->num_bound_vars){
-				return 0;
-			}
-		} else if(arg0->option == ARGUMENT_ENVIRONMENT){
-			if(arg0->argument_variable != arg1->argument_variable){
-				return 0;
-			}
-		} else {
+	switch(input0->option){
+		case ARGUMENT_DOT_PRODUCT:
+			return arguments_identical(input0->argument0, input1->argument0) && arguments_identical(input0->argument1, input1->argument1);
+		case ARGUMENT_DOT_SUM:
+			return arguments_identical(input0->argument0, input1->argument0) && !strcmp(input0->element_name, input1->element_name);
+		case ARGUMENT_BOUND:
+			return input0->subtype_source == input1->subtype_source;
+		case ARGUMENT_ENVIRONMENT:
+			return input0->argument_variable == input1->argument_variable;
+		case ARGUMENT_CONSTANT:
 			fprintf(stderr, "Internal Error: unimplemented argument option\n");
 			exit(1);
-		}
-
-		arg0 = arg0->child;
-		arg1 = arg1->child;
-
-		if(arg0 == NULL && arg1 != NULL){
-			return 0;
-		}
 	}
-
-	return arg0 == NULL;
 }
 
 static int types_identical(type *input0, type *input1){
@@ -183,7 +166,7 @@ static int types_identical(type *input0, type *input1){
 			}
 
 			for(k = 0; k < input0->definition_data->num_arguments; k++){
-				if(!arguments_identical(&(input0->arguments[k]), &(input1->arguments[k]))){
+				if(!arguments_identical(input0->arguments[k], input1->arguments[k])){
 					return 0;
 				}
 			}
@@ -195,44 +178,199 @@ static int types_identical(type *input0, type *input1){
 	}
 }
 
-static argument get_type_argument(char **c){
-	int identifier_length;
-	char *identifier;
-	variable *named_variable;
-	argument output;
-
-	skip_whitespace(c);
-	identifier_length = get_identifier_name_length(*c);
-	if(identifier_length <= 0){
-		fprintf(stderr, "Error: expected identifier\n");
-		exit(1);
+//For now, duplciates input_argument for every substitution
+static void substitute_argument_argument(argument **substitution_target, argument *input_argument){
+	while((*substitution_target)->option == ARGUMENT_DOT_SUM){
+		substitution_target = &(substitution_target->argument0);
 	}
 
-	identifier = malloc(sizeof(char)*(identifier_length + 1));
-	memcpy(identifier, *c, sizeof(char)*identifier_length);
-	identifier[identifier_length] = '\0';
+	assert((*substitution_target)->option != ARGUMENT_DOT_SUM);
 
-	named_variable = read_dictionary(*environment_variables, identifier, 0);
+	switch((*substitution_target)->option){
+		case ARGUMENT_DOT_PRODUCT:
+			substitute_argument_argument(&(substitution_target->argument0), input_argument);
+			substitute_argument_argument(&(substitution_target->argument1), input_argument);
+			return;
+		case ARGUMENT_BOUND:
+			if((*substitution_target)->subtype_source->num_bound_vars == 0){
+				free(*substitution_target);
+				*substitution_target = duplicate_argument(input_argument);
+			}
+			return;
+		default:
+			return;
+	}
+}
 
-	if(named_variable){
-		output.option = ARGUMENT_ENVIRONMENT;
-		output.argument_variable = named_variable;
+static void substitute_argument(type *input_type, argument *input_argument){
+	unsigned int k;
 
+	switch(input_type->option){
+		case PRODUCT:
+		case SUM:
+			substitute_argument(input_type->input_type, input_argument);
+			substitute_argument(input_type->output_type, input_argument);
+			break;
+		case OR:
+			substitute_argument(input_type->type0, input_argument);
+			substitute_argument(input_type->type1, input_argument);
+			break;
+		case DEFINITION:
+			for(k = 0; k < input_type->definition_data->num_arguments; k++){
+				substitute_argument_argument(&(input_type->arguments[k]), input_argument);
+			}
+			break;
+	}
+
+	assert(input_type->num_bound_vars > 0);
+	input_type->num_bound_vars--;
+}
+
+static void get_argument_recursive(char **c, argument **output_arg, type **output_type, int *do_free);
+
+//Caller must initialize *do_free to 0
+static void get_argument_value(char **c, argument **output_argument, type **output_type, int *do_free){
+	int identifier_length;
+	char *identifier_name;
+	variable *named_variable;
+	argument *output;
+
+	skip_whitespace(c);
+	if(is_identifier_char(**c)){
+		identifier_length = get_identifier_name_length(*c);
+		identifier_name = malloc(sizeof(char)*(identifier_length + 1));
+		memcpy(identifier_name, *c, sizeof(char)*identifier_length);
+		identifier_name[identifier_length] = '\0';
+		*c += identifier_length;
+
+		named_variable = read_dictionary(*parse_variables, identifier_name, 0);
+		if(named_variable){
+			*output_argument = malloc(sizeof(argument));
+			(*output_argument)->option = ARGUMENT_BOUND;
+			assert(named_variable->option == VARIABLE_BOUND);
+			(*output_argument)->subtype_source = named_variable->subtype_source;
+			*output_type = named_variable->subtype_source;
+		} else {
+			named_variable = read_dictionary(*environment_variables, identifier_name, 0);
+			if(!named_variable){
+				fprrintf(stderr, "Error: unknown variable '%s'\n", identifier_name);
+				exit(1);
+			}
+			*output_argument = malloc(sizeof(argument));
+			(*output_argument)->option = ARGUMENT_ENVIRONMENT;
+			(*output_argument)->argument_variable = named_variable;
+			assert(named_variable->option != VARIABLE_BOUND);
+			*output_type = named_variable->variable_type;
+		}
+		return output;
+	} else if(**c == '('){
+		++*c;
+		get_argument_recursive(c, output_argument, output_type, do_free);
+		skip_whitespace(c);
+		if(**c != ')'){
+			fprinf(stderr, "Error: expected ')'\n");
+			exit(1);
+		}
+		return output;
 	} else {
-		named_variable = read_dictionary(*parse_variables, identifier, 0);
+		fprintf(stderr, "Error: expected identifier or '('\n");
+		exit(1);
+	}
+}
 
-		if(!named_variable){
-			fprintf(stderr, "Error: unknown variable '%s'\n", identifier);
+static void get_argument_recursive(char **c, argument **output_arg, type **output_type, int *do_free){
+	int identifier_length;
+	char *identifier_name;
+	argument *input_arg;
+	type *search_type;
+	type *next_search_type;
+	type *input_type;
+	type *next_output_type;
+	argument *input_arg;
+	argument *next_output_arg;
+	int do_free_input;
+
+	skip_whitespace(c);
+	if((*output_type)->option == PRODUCT){
+		get_argument_value(c, &input_arg, &input_type, &do_free_input);
+		if(!types_identical((*output_type)->input_type, input_type)){
+			fprintf(stderr, "Error: type mismatch during argument evaluation\n");
+			exit(1);
+		}
+		if(!*do_free){
+			*output_type = duplicate_type((*output_type)->output_type);
+			*do_free = 1;
+		} else {
+			next_output_type = (*output_type)->output_type;
+			//It is very important that this comes before free(*output_type)
+			//Because *output_type may be referenced as a subtype source until the argument is substituted
+			substitute_argument(next_output_type, input_arg);
+			free(*output_type);
+			next_output_type->parent = NULL;
+			*output_type = next_output_type;
+		}
+
+		next_output_arg = malloc(sizeof(argument));
+		next_output_arg->option = ARGUMENT_DOT_PRODUCT;
+		next_output_arg->argument0 = *output_arg;
+		next_output_arg->argument1 = input_arg;
+
+		*output_arg = next_output_arg;
+	} else if((*output_type)->option == SUM){
+		skip_whitespace(c);
+		if(!is_identifier_char(**c)){
+			fprintf(stderr, "Error: expected identifier\n");
+			exit(1);
+		}
+		identifier_length = get_identifier_name_length(*c);
+		identifier_name = malloc(sizeof(char)*(identifier_length + 1));
+		memcpy(identifier_name, *c, sizeof(char)*identifier_length);
+		identifier_name[identifier_length] = '\0';
+		*c += identifier_length;
+
+		search_type = *output_type;
+		while(search_type && search_type->option == SUM){
+			if(!strcmp(search_type->input_name, identifier_name)){
+				break;
+			}
+
+			if(*do_free){
+				next_search_type = search_type->output_type;
+				free(search_type);
+				next_search_type->parent = NULL;
+				search_type = next_search_type;
+			} else {
+				search_type = search_type->output_type;
+			}
+		}
+
+		if(!search_type || search_type->option != SUM){
+			fprintf(stderr, "Error: unknown identifier '%s'\n", identifier_name);
 			exit(1);
 		}
 
-		//named_variable->option == VARIABLE_BOUND
-		output.option = ARGUMENT_BOUND;
-		output.subtype_source = named_variable->subtype_source;
+		if(*do_free){
+			*output_type = search_type->input_type;
+			free(search_type);
+			(*output_type)->parent = NULL;
+		} else {
+			*output_type = search_type->input_type;
+		}
+	} else {
+		fprintf(stderr, "Error: invalid operand for '.'\n");
+		exit(1);
 	}
+}
 
-	*c += identifier_length;
-	return output;
+//Caller must initialize *do_free to 0
+static void get_argument(char **c, argument **output_arg, type **output_type, int *do_free){
+	get_argument_value(c, output_arg, output_type, do_free);
+	skip_whitespace(c);
+	while(**c == '.'){
+		++*c;
+		get_argument_recursive(c, output_arg, output_type, do_free);
+		skip_whitespace(c);
+	}
 }
 
 static type *parse_type_value(char **c, int num_bound_vars){
