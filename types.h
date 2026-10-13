@@ -41,6 +41,20 @@ typedef struct argument argument;
 
 typedef struct coercion_map coercion_map;
 
+struct coercion_map{
+	enum coercion_map_option option;
+
+	union{
+		//COERCION_MAP_ENVIRONMENT
+		variable *coercion_variable;
+		//COERCION_MAP_BOUND
+		type *subtype;
+	};
+
+	int bound_min;
+	int bound_max;
+};
+
 struct type{
 	enum type_option option;
 	int num_bound_vars;
@@ -73,20 +87,6 @@ struct type{
 	//Reserved for type coercion
 	coercion_map source;
 };
-
-struct coercion_map{
-	enum coercion_map_option option;
-
-	union{
-		//COERCION_MAP_ENVIRONMENT
-		variable *coercion_variable;
-		//COERCION_MAP_BOUND
-		type *subtype;
-	};
-
-	int bound_min;
-	int bound_max;
-}
 
 struct argument{
 	enum argument_option option;
