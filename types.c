@@ -581,7 +581,7 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 		if(!is_product){
 			input_name = malloc(sizeof(char)*(identifier_length + 1));
 			memcpy(input_name, *c, sizeof(char)*identifier_length);
-			identifier[identifier_length] = '\0';
+			input_name[identifier_length] = '\0';
 		}
 
 		var = malloc(sizeof(variable));
