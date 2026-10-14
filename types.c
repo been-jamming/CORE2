@@ -250,7 +250,7 @@ static void substitute_argument_argument(argument **substitution_target, argumen
 			return;
 		case ARGUMENT_BOUND:
 			if((*substitution_target)->subtype_source->num_bound_vars == 0){
-				free(*substitution_target);
+				free_argument(*substitution_target);
 				*substitution_target = duplicate_argument(input_argument);
 			}
 			return;
@@ -303,6 +303,7 @@ static void decrement_num_bound_vars(type *input){
 	}
 }
 
+static void get_argument(char **c, argument **output_arg, type **output_type, int *do_free);
 static void get_argument_recursive(char **c, argument **output_arg, type **output_type, int *do_free);
 
 //Caller must initialize *do_free to 0
@@ -340,12 +341,13 @@ static void get_argument_value(char **c, argument **output_argument, type **outp
 		}
 	} else if(**c == '('){
 		++*c;
-		get_argument_recursive(c, output_argument, output_type, do_free);
+		get_argument(c, output_argument, output_type, do_free);
 		skip_whitespace(c);
 		if(**c != ')'){
 			fprintf(stderr, "Error: expected ')'\n");
 			exit(1);
 		}
+		++*c;
 	} else {
 		fprintf(stderr, "Error: expected identifier or '('\n");
 		exit(1);
@@ -391,6 +393,10 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 		next_output_arg->argument1 = input_arg;
 
 		*output_arg = next_output_arg;
+
+		if(do_free_input){
+			free_type(input_type);
+		}
 	} else if((*output_type)->option == SUM){
 		skip_whitespace(c);
 		if(!is_identifier_char(**c)){
@@ -409,14 +415,16 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 				break;
 			}
 
-			if(*do_free){
-				next_search_type = search_type->output_type;
-				free(search_type);
-				next_search_type->parent = NULL;
-				search_type = next_search_type;
-			} else {
-				search_type = search_type->output_type;
+			if(!*do_free){
+				search_type = duplicate_type(search_type);
+				*do_free = 1;
 			}
+
+			next_search_type = search_type->output_type;
+			free(search_type);
+			next_search_type->parent = NULL;
+			decrement_num_bound_vars(next_search_type);
+			search_type = next_search_type;
 		}
 
 		if(!search_type || search_type->option != SUM){
@@ -424,13 +432,21 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 			exit(1);
 		}
 
-		if(*do_free){
-			*output_type = search_type->input_type;
-			free(search_type);
-			(*output_type)->parent = NULL;
-		} else {
-			*output_type = search_type->input_type;
+		if(!*do_free){
+			search_type = duplicate_type(search_type);
+			*do_free = 1;
 		}
+
+		*output_type = search_type->input_type;
+		free(search_type);
+		(*output_type)->parent = NULL;
+
+		next_output_arg = malloc(sizeof(argument));
+		next_output_arg->option = ARGUMENT_DOT_SUM;
+		next_output_arg->argument0 = *output_arg;
+		next_output_arg->element_name = identifier_name;
+
+		*output_arg = next_output_arg;
 	} else {
 		fprintf(stderr, "Error: invalid operand for '.'\n");
 		exit(1);
@@ -755,7 +771,7 @@ void print_type(type *input_type){
 
 int main(int argc, char **argv){
 	type *parsed_type;
-	char *type_string = "Test(hi.n.out, n)";
+	char *type_string = "Test(hi.(hi.n.out).out, n)";
 	char *type_string2 = "Nat";
 	char *type_string3 = "Nat";
 	char *type_string4 = "*inp:Nat ^out:Nat";
