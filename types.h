@@ -2,7 +2,8 @@ enum type_option{
 	PRODUCT,
 	SUM,
 	OR,
-	DEFINITION
+	DEFINITION,
+	TYPE_VAR_DEPEND,
 };
 
 enum definition_option{
@@ -136,4 +137,5 @@ int is_identifier_char(char c);
 int get_identifier_name_length(char *c);
 type *parse_type(char **c, unsigned int num_bound_vars);
 void print_type(type *input_type);
+void free_type(type *input);
 

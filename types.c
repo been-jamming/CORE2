@@ -85,6 +85,7 @@ static type *duplicate_type(type *input){
 	switch(input->option){
 		case PRODUCT:
 		case SUM:
+		case TYPE_VAR_DEPEND:
 			if(input->input_name){
 				output->input_name = malloc(sizeof(char)*(strlen(input->input_name) + 1));
 				strcpy(output->input_name, input->input_name);
@@ -141,12 +142,13 @@ static void free_argument(argument *input){
 	free(input);
 }
 
-static void free_type(type *input){
+void free_type(type *input){
 	unsigned int k;
 
 	switch(input->option){
 		case PRODUCT:
 		case SUM:
+		case TYPE_VAR_DEPEND:
 			free_type(input->input_type);
 			free_type(input->output_type);
 			break;
@@ -202,6 +204,7 @@ static int types_identical(type *input0, type *input1){
 
 	switch(input0->option){
 		case PRODUCT:
+		case TYPE_VAR_DEPEND:
 			return types_identical(input0->input_type, input1->input_type) &&
 			       types_identical(input0->output_type, input1->output_type);
 		case SUM:
@@ -265,6 +268,7 @@ static void substitute_argument(type *input_type, argument *input_argument){
 	switch(input_type->option){
 		case PRODUCT:
 		case SUM:
+		case TYPE_VAR_DEPEND:
 			substitute_argument(input_type->input_type, input_argument);
 			substitute_argument(input_type->output_type, input_argument);
 			break;
@@ -288,6 +292,7 @@ static void decrement_num_bound_vars(type *input){
 	switch(input->option){
 		case PRODUCT:
 		case SUM:
+		case TYPE_VAR_DEPEND:
 			decrement_num_bound_vars(input->input_type);
 			//If input->option == SUM, then input->output_type is allowed to be NULL
 			if(input->output_type){
@@ -326,7 +331,7 @@ static void get_argument_value(char **c, argument **output_argument, type **outp
 			(*output_argument)->option = ARGUMENT_BOUND;
 			assert(named_variable->option == VARIABLE_BOUND);
 			(*output_argument)->subtype_source = named_variable->subtype_source;
-			*output_type = named_variable->subtype_source;
+			*output_type = named_variable->subtype_source->input_type;
 		} else {
 			named_variable = read_dictionary(*environment_variables, identifier_name, 0);
 			if(!named_variable){
@@ -472,6 +477,7 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 	variable *var;
 	int identifier_length;
 	int is_product;
+	int is_var_depend;
 	unsigned int k;
 	int do_free;
 	char *identifier;
@@ -564,8 +570,9 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 
 		++*c;
 		return output;
-	} else if(**c == '*' || **c == '^'){
+	} else if(**c == '*' || **c == '^' || **c == '$'){
 		is_product = (**c == '*');
+		is_var_depend = (**c == '$');
 		++*c;
 		skip_whitespace(c);
 		identifier_length = get_identifier_name_length(*c);
@@ -578,7 +585,7 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 		memcpy(identifier, *c, sizeof(char)*identifier_length);
 		identifier[identifier_length] = '\0';
 
-		if(!is_product){
+		if(!is_product && !is_var_depend){
 			input_name = malloc(sizeof(char)*(identifier_length + 1));
 			memcpy(input_name, *c, sizeof(char)*identifier_length);
 			input_name[identifier_length] = '\0';
@@ -602,7 +609,7 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 
 		input_type = parse_type(c, num_bound_vars);
 		output->input_type = input_type;
-		if(!is_product){
+		if(!is_product && !is_var_depend){
 			output->input_name = input_name;
 		} else {
 			output->input_name = NULL;
@@ -613,19 +620,23 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 
 		skip_whitespace(c);
 
-		if(is_product || is_identifier_char(**c) || **c == '*' || **c == '^'){
-			output_type = parse_type(c, num_bound_vars + 1);
-		} else {
-			output_type = NULL;
-		}
 		output->parent = NULL;
 
 		output->num_bound_vars = num_bound_vars;
 		if(is_product){
 			output->option = PRODUCT;
+		} else if(is_var_depend){
+			output->option = TYPE_VAR_DEPEND;
 		} else {
 			output->option = SUM;
 		}
+
+		if(is_product || is_var_depend || is_identifier_char(**c) || **c == '*' || **c == '^'){
+			output_type = parse_type(c, num_bound_vars + 1);
+		} else {
+			output_type = NULL;
+		}
+
 		output->output_type = output_type;
 		input_type->parent = output;
 		if(output_type){
@@ -739,15 +750,21 @@ void print_type(type *input_type){
 		return;
 	}
 
-	if(input_type->option == PRODUCT || input_type->option == SUM){
+	if(input_type->option == PRODUCT || input_type->option == SUM || input_type->option == TYPE_VAR_DEPEND){
 		if(input_type->option == PRODUCT)
 			printf("*%u:(", input_type->num_bound_vars);
-		else
+		else if(input_type->option == SUM)
 			printf("^%u:(", input_type->num_bound_vars);
+		else
+			printf("$%u:(", input_type->num_bound_vars);
 		print_type(input_type->input_type);
-		printf(")(");
-		print_type(input_type->output_type);
-		printf(")");
+		if(input_type->output_type){
+			printf(")(");
+			print_type(input_type->output_type);
+			printf(")");
+		} else {
+			printf(")");
+		}
 	} else if(input_type->option == OR){
 		printf("(");
 		print_type(input_type->type0);
@@ -771,7 +788,8 @@ void print_type(type *input_type){
 
 int main(int argc, char **argv){
 	type *parsed_type;
-	char *type_string = "Test(hi.(hi.n.out).out, n)";
+	char *type_string = "$x:Nat Test(x, n)";
+	//char *type_string = "Test(hi.(hi.n.out).out, n)";
 	char *type_string2 = "Nat";
 	char *type_string3 = "Nat";
 	char *type_string4 = "*inp:Nat ^out:Nat";

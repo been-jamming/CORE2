@@ -2,10 +2,12 @@
 
 enum expr_option{
 	EXPR_CONSTANT,
-	EXPR_APPLY,
+	EXPR_APPLY_PRODUCT,
+	EXPR_APPLY_SUM,
 	EXPR_PRIMITIVE_FUNC,
 	EXPR_OPERATION,
-	EXPR_VARIABLE
+	EXPR_VARIABLE,
+	EXPR_CONSTRUCT
 };
 
 typedef struct expr expr;
@@ -19,10 +21,14 @@ struct expr{
 	expr *parent;
 
 	union{
-		//EXPR_APPLY
+		//EXPR_APPLY_PRODUCT
+		//EXPR_APPLY_SUM
 		struct{
 			expr *expr0;
-			expr *expr1;
+			union{
+				expr *expr1;
+				variable *target_variable;
+			};
 		};
 		//EXPR_OPERATION
 		struct{
@@ -38,13 +44,13 @@ struct expr{
 		//EXPR_CONSTANT
 		expr_constant *constant;
 		//EXPR_VARIABLE
-		variable *variable;
+		variable *expr_variable;
 	};
 };
 
 //TODO
 struct expr_operation{
-
+	char *text;
 };
 
 //TODO
