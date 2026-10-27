@@ -127,7 +127,7 @@ struct definition{
 	char *name;
 
 	unsigned int num_arguments;
-	type **argument_types;
+	type *definition_type;
 };
 
 void skip_whitespace(char **c);

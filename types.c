@@ -270,7 +270,9 @@ static void substitute_argument(type *input_type, argument *input_argument){
 		case SUM:
 		case TYPE_VAR_DEPEND:
 			substitute_argument(input_type->input_type, input_argument);
-			substitute_argument(input_type->output_type, input_argument);
+			if(input_type->output_type){
+				substitute_argument(input_type->output_type, input_argument);
+			}
 			break;
 		case OR:
 			substitute_argument(input_type->type0, input_argument);
@@ -474,6 +476,8 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 	type *input_type;
 	type *output_type;
 	type *argument_type;
+	type *definition_type;
+	type *next_definition_type;
 	variable *var;
 	int identifier_length;
 	int is_product;
@@ -522,16 +526,32 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 				*c = saved_pos;
 				return output;
 			}
+
+			definition_type = duplicate_type(named_def->definition_type);
+
 			for(k = 0; k < named_def->num_arguments; k++){
 				do_free = 0;
 				get_argument(c, &(output->arguments[k]), &argument_type, &do_free);
-				if(!types_identical(named_def->argument_types[k], argument_type)){
+
+				assert(definition_type->option == TYPE_VAR_DEPEND);
+
+				if(!types_identical(definition_type->input_type, argument_type)){
 					fprintf(stderr, "Error: mismatched arguments\n");
 					exit(1);
 				}
 				if(do_free){
 					free_type(argument_type);
 				}
+
+				next_definition_type = definition_type->output_type;
+				if(definition_type->input_name){
+					free(definition_type->input_type);
+				}
+				free(definition_type);
+				next_definition_type->parent = NULL;
+				definition_type = next_definition_type;
+				substitute_argument(definition_type, output->arguments[k]);
+
 				skip_whitespace(c);
 				if(k + 1 < named_def->num_arguments && **c != ','){
 					fprintf(stderr, "Error: expected ','\n");
@@ -548,6 +568,8 @@ static type *parse_type_value(char **c, unsigned int num_bound_vars){
 			}
 
 			++*c;
+
+			free_type(definition_type);
 
 			return output;
 		} else {
@@ -786,11 +808,11 @@ void print_type(type *input_type){
 	}
 }
 
-int main(int argc, char **argv){
+int main2(int argc, char **argv){
 	type *parsed_type;
 	char *type_string = "$x:Nat Test(x, n)";
 	//char *type_string = "Test(hi.(hi.n.out).out, n)";
-	char *type_string2 = "Nat";
+	char *type_string2 = "$x:Nat $y:Nat True";
 	char *type_string3 = "Nat";
 	char *type_string4 = "*inp:Nat ^out:Nat";
 	char *type_string5 = "Nat";
@@ -808,17 +830,15 @@ int main(int argc, char **argv){
 	environment_variables = malloc(sizeof(dictionary));
 	*environment_variables = create_dictionary(NULL);
 
-	true_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "True", .num_arguments = 0, .argument_types = NULL};
-	false_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "False", .num_arguments = 0, .argument_types = NULL};
-	nat_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Nat", .num_arguments = 0, .argument_types = NULL};
+	true_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "True", .num_arguments = 0, .definition_type = NULL};
+	false_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "False", .num_arguments = 0, .definition_type = NULL};
+	nat_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Nat", .num_arguments = 0, .definition_type = NULL};
 
 	write_dictionary(definitions, "True", &true_definition, 0);
 	write_dictionary(definitions, "False", &false_definition, 0);
 	write_dictionary(definitions, "Nat", &nat_definition, 0);
 
-	test_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Test", .num_arguments = 2, .argument_types = malloc(sizeof(type *)*2)};
-	test_definition.argument_types[0] = parse_type(&type_string2, 0);
-	test_definition.argument_types[1] = parse_type(&type_string3, 0);
+	test_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Test", .num_arguments = 2, .definition_type = parse_type(&type_string2, 0)};
 
 	write_dictionary(definitions, "Test", &test_definition, 0);
 
