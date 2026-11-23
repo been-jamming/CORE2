@@ -5,7 +5,9 @@
 #include <assert.h>
 #include "dictionary.h"
 #include "types.h"
+#include "commands.h"
 
+extern parse_context *current_context;
 dictionary *definitions;
 dictionary *environment_variables;
 dictionary *parse_variables;
@@ -61,7 +63,7 @@ static argument *duplicate_argument(argument *input){
 			strcpy(output->element_name, input->element_name);
 			break;
 		case ARGUMENT_BOUND:
-			output->subtype_source = input->subtype_source;
+			output->subtype_source = input->subtype_source->duplication_target;
 			break;
 		case ARGUMENT_ENVIRONMENT:
 			output->argument_variable = input->argument_variable;
@@ -86,6 +88,7 @@ static type *duplicate_type(type *input){
 		case PRODUCT:
 		case SUM:
 		case TYPE_VAR_DEPEND:
+			input->duplication_target = output;
 			if(input->input_name){
 				output->input_name = malloc(sizeof(char)*(strlen(input->input_name) + 1));
 				strcpy(output->input_name, input->input_name);
@@ -103,7 +106,6 @@ static type *duplicate_type(type *input){
 			if(output->output_type){
 				output->output_type->parent = output;
 			}
-			input->duplication_target = output;
 			break;
 		case OR:
 			output->type0 = duplicate_type(input->type0);
@@ -198,8 +200,12 @@ static int types_identical(type *input0, type *input1){
 		return 0;
 	}
 
-	if(input0->option != input1->option || input0->num_bound_vars != input1->num_bound_vars){
+	if(input0->option != input1->option){
 		return 0;
+	}
+
+	if(input0->num_bound_vars != input1->num_bound_vars){
+		//return 0;
 	}
 
 	switch(input0->option){
@@ -370,6 +376,8 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 	type *input_type;
 	type *next_output_type;
 	argument *next_output_arg;
+	//Allocating this on the stack because substitute_argument duplicates arguments onto the heap
+	argument argument_dot_sum;
 	int do_free_input;
 
 	skip_whitespace(c);
@@ -405,6 +413,8 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 			free_type(input_type);
 		}
 	} else if((*output_type)->option == SUM){
+		argument_dot_sum.option = ARGUMENT_DOT_SUM;
+
 		skip_whitespace(c);
 		if(!is_identifier_char(**c)){
 			fprintf(stderr, "Error: expected identifier\n");
@@ -417,7 +427,7 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 		*c += identifier_length;
 
 		search_type = *output_type;
-		while(search_type && search_type->option == SUM){
+		while(search_type && search_type->option == SUM && search_type->input_name != NULL){
 			if(!strcmp(search_type->input_name, identifier_name)){
 				break;
 			}
@@ -428,13 +438,17 @@ static void get_argument_recursive(char **c, argument **output_arg, type **outpu
 			}
 
 			next_search_type = search_type->output_type;
+
+			argument_dot_sum.argument0 = *output_arg;
+			argument_dot_sum.element_name = search_type->input_name;
+			substitute_argument(next_search_type, &argument_dot_sum);
+
 			free(search_type);
 			next_search_type->parent = NULL;
-			decrement_num_bound_vars(next_search_type);
 			search_type = next_search_type;
 		}
 
-		if(!search_type || search_type->option != SUM){
+		if(!search_type || search_type->option != SUM || search_type->input_name == NULL){
 			fprintf(stderr, "Error: unknown identifier '%s'\n", identifier_name);
 			exit(1);
 		}
@@ -700,8 +714,8 @@ static type *parse_type_recursive(char **c, type *prev_type_value, unsigned int 
 		return output;
 	} else if(**c == '&' && precedence <= 2){
 		++*c;
-		type_value = parse_type_value(c, num_bound_vars);
-		type_value = parse_type_recursive(c, type_value, num_bound_vars, 2);
+		type_value = parse_type_value(c, num_bound_vars + 1);
+		type_value = parse_type_recursive(c, type_value, num_bound_vars + 1, 2);
 
 		output = malloc(sizeof(type));
 		output->option = SUM;
@@ -808,20 +822,28 @@ void print_type(type *input_type){
 	}
 }
 
-int main2(int argc, char **argv){
-	type *parsed_type;
-	char *type_string = "$x:Nat Test(x, n)";
-	//char *type_string = "Test(hi.(hi.n.out).out, n)";
-	char *type_string2 = "$x:Nat $y:Nat True";
-	char *type_string3 = "Nat";
-	char *type_string4 = "*inp:Nat ^out:Nat";
-	char *type_string5 = "Nat";
-	definition true_definition;
-	definition false_definition;
-	definition test_definition;
-	definition nat_definition;
-	variable hi_variable;
-	variable n_variable;
+int main(int argc, char **argv){
+	char *nat_equal_type = "$x:Nat$y:Nat True";
+	char *bool_equal_type = "$x:Bool$y:Bool True";
+
+	char *error_type = "^n:Nat ^b:Bool ^cond:(NatEqual(n, n) & BoolEqual(b, b))";
+
+	char *arg_string = "test.cond";
+
+	int do_free = 0;
+
+	definition *true_definition;
+	definition *false_definition;
+	definition *nat_definition;
+	definition *bool_definition;
+	definition *nat_equal_definition;
+	definition *bool_equal_definition;
+
+	variable *test_var;
+
+	type *argument_type;
+
+	argument *arg;
 	
 	definitions = malloc(sizeof(dictionary));
 	*definitions = create_dictionary(NULL);
@@ -830,30 +852,49 @@ int main2(int argc, char **argv){
 	environment_variables = malloc(sizeof(dictionary));
 	*environment_variables = create_dictionary(NULL);
 
-	true_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "True", .num_arguments = 0, .definition_type = NULL};
-	false_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "False", .num_arguments = 0, .definition_type = NULL};
-	nat_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Nat", .num_arguments = 0, .definition_type = NULL};
+	true_definition = malloc(sizeof(definition));
+	false_definition = malloc(sizeof(definition));
+	nat_definition = malloc(sizeof(definition));
+	bool_definition = malloc(sizeof(definition));
+	nat_equal_definition = malloc(sizeof(definition));
+	bool_equal_definition = malloc(sizeof(definition));
 
-	write_dictionary(definitions, "True", &true_definition, 0);
-	write_dictionary(definitions, "False", &false_definition, 0);
-	write_dictionary(definitions, "Nat", &nat_definition, 0);
+	*true_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "True", .num_arguments = 0, .definition_type = NULL};
+	*false_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "False", .num_arguments = 0, .definition_type = NULL};
+	*nat_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Nat", .num_arguments = 0, .definition_type = NULL};
+	*bool_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Bool", .num_arguments = 0, .definition_type = NULL};
 
-	test_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "Test", .num_arguments = 2, .definition_type = parse_type(&type_string2, 0)};
+	write_dictionary(definitions, "True", true_definition, 0);
+	write_dictionary(definitions, "False", false_definition, 0);
+	write_dictionary(definitions, "Nat", nat_definition, 0);
+	write_dictionary(definitions, "Bool", bool_definition, 0);
 
-	write_dictionary(definitions, "Test", &test_definition, 0);
+	*nat_equal_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "NatEqual", .num_arguments = 2, .definition_type = parse_type(&nat_equal_type, 0)};
+	*bool_equal_definition = (definition) {.option = DEFINITION_PRIMITIVE, .name = "BoolEqual", .num_arguments = 2, .definition_type = parse_type(&bool_equal_type, 0)};
 
-	hi_variable = (variable) {.option = VARIABLE_PRIMITIVE, .name = "hi", .variable_type = parse_type(&type_string4, 0)};
+	write_dictionary(definitions, "NatEqual", nat_equal_definition, 0);
+	write_dictionary(definitions, "BoolEqual", bool_equal_definition, 0);
 
-	write_dictionary(environment_variables, "hi", &hi_variable, 0);
-
-	n_variable = (variable) {.option = VARIABLE_PRIMITIVE, .name = "n", .variable_type = parse_type(&type_string5, 0)};
-
-	write_dictionary(environment_variables, "n", &n_variable, 0);
-
-	parsed_type = parse_type(&type_string, 0);
-	print_type(parsed_type);
+	test_var = malloc(sizeof(variable));
+	*test_var = (variable) {.option = VARIABLE_PRIMITIVE, .name = "test", .variable_type = parse_type(&error_type, 0)};
+	printf("test_var type: ");
+	print_type(test_var->variable_type);
 	printf("\n");
-	
+
+	write_dictionary(environment_variables, "test", test_var, 0);
+
+	get_argument(&arg_string, &arg, &argument_type, &do_free);
+
+	printf("do_free: %d\n", do_free);
+
+	printf("argument type: ");
+	print_type(argument_type);
+	printf("\n");
+
+	if(do_free){
+		free_type(argument_type);
+	}
+
 	return 0;
 }
 

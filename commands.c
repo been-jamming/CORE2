@@ -5,7 +5,7 @@
 #include "types.h"
 #include "commands.h"
 
-static parse_context *current_context;
+parse_context *current_context;
 static parse_context *root_context;
 extern dictionary *definitions;
 
@@ -27,8 +27,6 @@ void new_context(void){
 */
 
 void free_definition(definition *def){
-	int k;
-
 	free(def->name);
 
 	free_type(def->definition_type);
@@ -116,9 +114,6 @@ unsigned int get_type_num_arguments(type *inp){
 void parse_define(char **c, parse_context *context){
 	char *identifier;
 	definition *new_definition;
-	int k;
-	unsigned int num_arguments;
-	variable *var;
 
 	*c += strlen("define");
 	skip_whitespace(c);
@@ -156,12 +151,16 @@ void parse_define(char **c, parse_context *context){
 	write_dictionary(definitions, identifier, new_definition, 0);
 }
 
-extern int main2(int argc, char **argv);
+void parse_construct(char **c, parse_context *context){
 
-int main(int argc, char **argv){
+}
+
+//extern int main2(int argc, char **argv);
+
+int main2(int argc, char **argv){
 	char *c = "define bla: $a:Nat $b:Nat Test(a, b) & Test(a, a);";
 
-	main2(argc, argv);
+	//main2(argc, argv);
 	parse_define(&c, NULL);
 
 	return 0;
